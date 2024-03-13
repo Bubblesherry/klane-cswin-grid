@@ -28,7 +28,14 @@ import torch.utils.checkpoint as checkpoint
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        drop=0.0,
+    ):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -47,10 +54,20 @@ class Mlp(nn.Module):
 
 
 class LePEAttention(nn.Module):
-    def __init__(self, dim, resolution, idx, split_size=7, dim_out=None, num_heads=8, qkv_bias=False, qk_scale=None,
-                 attn_drop=0., proj_drop=0.):
-        """Not supported now, since we have cls_tokens now.....
-        """
+    def __init__(
+        self,
+        dim,
+        resolution,
+        idx,
+        split_size=7,
+        dim_out=None,
+        num_heads=8,
+        qkv_bias=False,
+        qk_scale=None,
+        attn_drop=0.0,
+        proj_drop=0.0,
+    ):
+        """Not supported now, since we have cls_tokens now....."""
         super().__init__()
         self.dim = dim
         self.dim_out = dim_out or dim
@@ -59,7 +76,7 @@ class LePEAttention(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
-        self.scale = qk_scale or head_dim ** -0.5
+        self.scale = qk_scale or head_dim**-0.5
         self.idx = idx
         if idx == -1:
             H_sp, W_sp = self.resolution, self.resolution
@@ -84,19 +101,33 @@ class LePEAttention(nn.Module):
     def im2cswin(self, x):
         B, C, H, W = x.shape
         x = img2windows(x, self.H_sp, self.W_sp)
-        x = x.reshape(-1, self.H_sp * self.W_sp, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3).contiguous()
+        x = (
+            x.reshape(-1, self.H_sp * self.W_sp, self.num_heads, C // self.num_heads)
+            .permute(0, 2, 1, 3)
+            .contiguous()
+        )
         return x
 
     def get_rpe(self, x, func):
         B, C, H, W = x.shape
         H_sp, W_sp = self.H_sp, self.W_sp
         x = x.view(B, C, H // H_sp, H_sp, W // W_sp, W_sp)
-        x = x.permute(0, 2, 4, 1, 3, 5).contiguous().reshape(-1, C, H_sp, W_sp)  ### B', C, H', W'
+        x = (
+            x.permute(0, 2, 4, 1, 3, 5).contiguous().reshape(-1, C, H_sp, W_sp)
+        )  ### B', C, H', W'
 
         rpe = func(x)  ### B', C, H', W'
-        rpe = rpe.reshape(-1, self.num_heads, C // self.num_heads, H_sp * W_sp).permute(0, 1, 3, 2).contiguous()
+        rpe = (
+            rpe.reshape(-1, self.num_heads, C // self.num_heads, H_sp * W_sp)
+            .permute(0, 1, 3, 2)
+            .contiguous()
+        )
 
-        x = x.reshape(-1, self.num_heads, C // self.num_heads, self.H_sp * self.W_sp).permute(0, 1, 3, 2).contiguous()
+        x = (
+            x.reshape(-1, self.num_heads, C // self.num_heads, self.H_sp * self.W_sp)
+            .permute(0, 1, 3, 2)
+            .contiguous()
+        )
         return x, rpe
 
     def forward(self, temp):
@@ -139,18 +170,20 @@ class LePEAttention(nn.Module):
 
         ### Local attention
         q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))  # B head N C @ B head C N --> B head N N
+        attn = q @ k.transpose(-2, -1)  # B head N C @ B head C N --> B head N N
 
         attn = nn.functional.softmax(attn, dim=-1, dtype=attn.dtype)
 
         attn = self.attn_drop(attn)
 
         x = (attn @ v) + rpe
-        x = x.transpose(1, 2).reshape(-1, self.H_sp * self.W_sp, C)  # B head N N @ B head N C
+        x = x.transpose(1, 2).reshape(
+            -1, self.H_sp * self.W_sp, C
+        )  # B head N N @ B head N C
 
         ### Window2Img
         x = windows2img(x, self.H_sp, self.W_sp, H_, W_)  # B H_ W_ C
-        x = x[:, top_pad:H + top_pad, left_pad:W + left_pad, :]
+        x = x[:, top_pad : H + top_pad, left_pad : W + left_pad, :]
         x = x.reshape(B, -1, C)
 
         return x
@@ -158,11 +191,22 @@ class LePEAttention(nn.Module):
 
 class CSWinBlock(nn.Module):
 
-    def __init__(self, dim, patches_resolution, num_heads,
-                 split_size=7, mlp_ratio=4., qkv_bias=False, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm,
-                 last_stage=False):
+    def __init__(
+        self,
+        dim,
+        patches_resolution,
+        num_heads,
+        split_size=7,
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        drop=0.0,
+        attn_drop=0.0,
+        drop_path=0.0,
+        act_layer=nn.GELU,
+        norm_layer=nn.LayerNorm,
+        last_stage=False,
+    ):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
@@ -180,26 +224,51 @@ class CSWinBlock(nn.Module):
         self.proj_drop = nn.Dropout(drop)
 
         if last_stage:
-            self.attns = nn.ModuleList([
-                LePEAttention(
-                    dim, resolution=self.patches_resolution, idx=-1,
-                    split_size=split_size, num_heads=num_heads, dim_out=dim,
-                    qkv_bias=qkv_bias, qk_scale=qk_scale,
-                    attn_drop=attn_drop, proj_drop=drop)
-                for i in range(self.branch_num)])
+            self.attns = nn.ModuleList(
+                [
+                    LePEAttention(
+                        dim,
+                        resolution=self.patches_resolution,
+                        idx=-1,
+                        split_size=split_size,
+                        num_heads=num_heads,
+                        dim_out=dim,
+                        qkv_bias=qkv_bias,
+                        qk_scale=qk_scale,
+                        attn_drop=attn_drop,
+                        proj_drop=drop,
+                    )
+                    for i in range(self.branch_num)
+                ]
+            )
         else:
-            self.attns = nn.ModuleList([
-                LePEAttention(
-                    dim // 2, resolution=self.patches_resolution, idx=i,
-                    split_size=split_size, num_heads=num_heads // 2, dim_out=dim // 2,
-                    qkv_bias=qkv_bias, qk_scale=qk_scale,
-                    attn_drop=attn_drop, proj_drop=drop)
-                for i in range(self.branch_num)])
+            self.attns = nn.ModuleList(
+                [
+                    LePEAttention(
+                        dim // 2,
+                        resolution=self.patches_resolution,
+                        idx=i,
+                        split_size=split_size,
+                        num_heads=num_heads // 2,
+                        dim_out=dim // 2,
+                        qkv_bias=qkv_bias,
+                        qk_scale=qk_scale,
+                        attn_drop=attn_drop,
+                        proj_drop=drop,
+                    )
+                    for i in range(self.branch_num)
+                ]
+            )
         mlp_hidden_dim = int(dim * mlp_ratio)
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, out_features=dim, act_layer=act_layer,
-                       drop=drop)
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.mlp = Mlp(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            out_features=dim,
+            act_layer=act_layer,
+            drop=drop,
+        )
         self.norm2 = norm_layer(dim)
 
         atten_mask_matrix = None
@@ -220,15 +289,14 @@ class CSWinBlock(nn.Module):
         temp = self.qkv(img).reshape(B, H, W, 3, C).permute(0, 3, 4, 1, 2)
 
         if self.branch_num == 2:
-            x1 = self.attns[0](temp[:, :, :C // 2, :, :])
-            x2 = self.attns[1](temp[:, :, C // 2:, :, :])
+            x1 = self.attns[0](temp[:, :, : C // 2, :, :])
+            x2 = self.attns[1](temp[:, :, C // 2 :, :, :])
             attened_x = torch.cat([x1, x2], dim=2)
         else:
             attened_x = self.attns[0](temp)
         attened_x = self.proj(attened_x)
         x = x + self.drop_path(attened_x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-
         return x
 
 
@@ -238,7 +306,9 @@ def img2windows(img, H_sp, W_sp):
     """
     B, C, H, W = img.shape
     img_reshape = img.view(B, C, H // H_sp, H_sp, W // W_sp, W_sp)
-    img_perm = img_reshape.permute(0, 2, 4, 3, 5, 1).contiguous().reshape(-1, H_sp * W_sp, C)
+    img_perm = (
+        img_reshape.permute(0, 2, 4, 3, 5, 1).contiguous().reshape(-1, H_sp * W_sp, C)
+    )
     return img_perm
 
 
@@ -272,88 +342,155 @@ class Merge_Block(nn.Module):
 
 @BACKBONE.register_module
 class CSWin(nn.Module):
-    """ Vision Transformer with support for patch or hybrid CNN input stage
-    """
+    """Vision Transformer with support for patch or hybrid CNN input stage"""
 
-    def __init__(self, img_size=144, patch_size=4, in_chans=64, embed_dim=512, depth=[1, 2, 21, 1], split_size=7,
-                 num_heads=[1, 2, 4, 8], mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                 drop_path_rate=0., hybrid_backbone=None, norm_layer=nn.LayerNorm, use_chk=False, cfg=None):
+    def __init__(
+        self,
+        img_size=144,
+        patch_size=4,
+        in_chans=64,
+        embed_dim=512,
+        depth=[1, 2, 21, 1],
+        split_size=[7],
+        num_heads=[1, 2, 4, 8],
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        drop_rate=0.0,
+        attn_drop_rate=0.0,
+        drop_path_rate=0.0,
+        hybrid_backbone=None,
+        output_channels=1024,
+        norm_layer=nn.LayerNorm,
+        use_chk=False,
+        cfg=None,
+    ):
         super().__init__()
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.num_features = self.embed_dim = (
+            embed_dim  # num_features for consistency with other models
+        )
 
         heads = num_heads
         self.use_chk = use_chk
         self.stage1_conv_embed = nn.Sequential(
             nn.Conv2d(in_chans, embed_dim, 7, 2, 2),
-            Rearrange('b c h w -> b (h w) c', h=img_size // 2, w=img_size // 2),
-            nn.LayerNorm(embed_dim)
+            Rearrange("b c h w -> b (h w) c", h=img_size // 2, w=img_size // 2),
+            nn.LayerNorm(embed_dim),
         )
 
         self.norm1 = nn.LayerNorm(embed_dim)
 
         curr_dim = embed_dim
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, np.sum(depth))]  # stochastic depth decay rule
-        self.stage1 = nn.ModuleList([
-            CSWinBlock(
-                dim=curr_dim, num_heads=heads[0], patches_resolution=144 // 2, mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias, qk_scale=qk_scale, split_size=split_size[0],
-                drop=drop_rate, attn_drop=attn_drop_rate,
-                drop_path=dpr[i], norm_layer=norm_layer)
-            for i in range(depth[0])])
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, np.sum(depth))
+        ]  # stochastic depth decay rule
+        self.stage1 = nn.ModuleList(
+            [
+                CSWinBlock(
+                    dim=curr_dim,
+                    num_heads=heads[0],
+                    patches_resolution=144 // 2,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    split_size=split_size[0],
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                )
+                for i in range(depth[0])
+            ]
+        )
 
         self.merge1 = Merge_Block(curr_dim, curr_dim * (heads[1] // heads[0]))
         curr_dim = curr_dim * (heads[1] // heads[0])
         self.norm2 = nn.LayerNorm(curr_dim)
         self.stage2 = nn.ModuleList(
-            [CSWinBlock(
-                dim=curr_dim, num_heads=heads[1], patches_resolution=144 // 4, mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias, qk_scale=qk_scale, split_size=split_size[1],
-                drop=drop_rate, attn_drop=attn_drop_rate,
-                drop_path=dpr[np.sum(depth[:1]) + i], norm_layer=norm_layer)
-                for i in range(depth[1])])
+            [
+                CSWinBlock(
+                    dim=curr_dim,
+                    num_heads=heads[1],
+                    patches_resolution=144 // 4,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    split_size=split_size[1],
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[np.sum(depth[:1]) + i],
+                    norm_layer=norm_layer,
+                )
+                for i in range(depth[1])
+            ]
+        )
 
         self.merge2 = Merge_Block(curr_dim, curr_dim * (heads[2] // heads[1]))
         curr_dim = curr_dim * (heads[2] // heads[1])
         self.norm3 = nn.LayerNorm(curr_dim)
         temp_stage3 = []
         temp_stage3.extend(
-            [CSWinBlock(
-                dim=curr_dim, num_heads=heads[2], patches_resolution=144 // 8, mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias, qk_scale=qk_scale, split_size=split_size[2],
-                drop=drop_rate, attn_drop=attn_drop_rate,
-                drop_path=dpr[np.sum(depth[:2]) + i], norm_layer=norm_layer)
-                for i in range(depth[2])])
+            [
+                CSWinBlock(
+                    dim=curr_dim,
+                    num_heads=heads[2],
+                    patches_resolution=144 // 8,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    split_size=split_size[2],
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[np.sum(depth[:2]) + i],
+                    norm_layer=norm_layer,
+                )
+                for i in range(depth[2])
+            ]
+        )
 
         self.stage3 = nn.ModuleList(temp_stage3)
 
         self.merge3 = Merge_Block(curr_dim, curr_dim * (heads[3] // heads[2]))
         curr_dim = curr_dim * (heads[3] // heads[2])
         self.stage4 = nn.ModuleList(
-            [CSWinBlock(
-                dim=curr_dim, num_heads=heads[3], patches_resolution=144 // 16, mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias, qk_scale=qk_scale, split_size=split_size[-1],
-                drop=drop_rate, attn_drop=attn_drop_rate,
-                drop_path=dpr[np.sum(depth[:-1]) + i], norm_layer=norm_layer, last_stage=True)
-                for i in range(depth[-1])])
+            [
+                CSWinBlock(
+                    dim=curr_dim,
+                    num_heads=heads[3],
+                    patches_resolution=144 // 16,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    split_size=split_size[-1],
+                    drop=drop_rate,
+                    attn_drop=attn_drop_rate,
+                    drop_path=dpr[np.sum(depth[:-1]) + i],
+                    norm_layer=norm_layer,
+                    last_stage=True,
+                )
+                for i in range(depth[-1])
+            ]
+        )
 
         self.norm4 = norm_layer(curr_dim)
 
-        # Upsampling layers
-        
-        self.upsample = nn.Upsample(size=(144, 144), mode='bilinear', align_corners=True)
-        # self.upconv1 = nn.ConvTranspose2d(4096, 1024, kernel_size=3, stride=2, padding=1, output_padding=1)
-        # self.conv1x1_first = nn.Conv2d(1024, 8, kernel_size=1)
-        # self.upsample_first = nn.Upsample(size=(72, 72), mode='bilinear', align_corners=True)
+        temp_h = int(img_size / patch_size)
+        self.rearrange = Rearrange(
+            "b (h w) (p1 p2 c) -> b c (h p1) (w p2)",
+            h=temp_h,
+            p1=patch_size,
+            p2=patch_size,
+        )
 
-        # self.upconv2 = nn.ConvTranspose2d(8, 256, kernel_size=3, stride=2, padding=1, output_padding=1)
-        # self.conv1x1_second = nn.Conv2d(256, 8, kernel_size=1)
-        # self.upsample_second = nn.Upsample(size=(144, 144), mode='bilinear', align_corners=True)
+        out_in_channels = int(curr_dim / patch_size**2)
+        self.mlp_layer = nn.Conv2d(
+            in_channels=out_in_channels, out_channels=output_channels, kernel_size=1
+        )
 
-        
     def init_weights(self, pretrained=None):
         def _init_weights(m):
             if isinstance(m, nn.Linear):
-                trunc_normal_(m.weight, std=.02)
+                trunc_normal_(m.weight, std=0.02)
                 if isinstance(m, nn.Linear) and m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, (nn.LayerNorm, nn.BatchNorm2d)):
@@ -367,13 +504,7 @@ class CSWin(nn.Module):
         elif pretrained is None:
             self.apply(_init_weights)
         else:
-            raise TypeError('pretrained must be a str or None')
-
-    def save_out(self, x, norm, H, W):
-        x = norm(x)
-        B, N, C = x.shape
-        x = x.view(B, H, W, C).permute(0, 3, 1, 2).contiguous()
-        return x
+            raise TypeError("pretrained must be a str or None")
 
     def forward_features(self, x):
         B = x.shape[0]
@@ -391,11 +522,12 @@ class CSWin(nn.Module):
             else:
                 x = blk(x)
 
-        out.append(self.save_out(x, self.norm1, H, W))
+        out.append(x)
 
-        for pre, blocks, norm in zip([self.merge1, self.merge2, self.merge3],
-                                     [self.stage2, self.stage3, self.stage4],
-                                     [self.norm2, self.norm3, self.norm4]):
+        for pre, blocks in zip(
+            [self.merge1, self.merge2, self.merge3],
+            [self.stage2, self.stage3, self.stage4],
+        ):
 
             x, H, W = pre(x, H, W)
             for blk in blocks:
@@ -405,37 +537,47 @@ class CSWin(nn.Module):
                     x = checkpoint.checkpoint(blk, x)
                 else:
                     x = blk(x)
-
-            out.append(self.save_out(x, norm, H, W))
+            out.append(x)
 
         return tuple(out)
 
     def forward(self, x):
         x = self.forward_features(x)
         x = x[-1]
-
-        x = self.upsample(x)
-
-        # # Apply first upsampling
-        # x = self.upconv1(x)
-        # x = self.conv1x1_first(x)
-        # x = self.upsample_first(x)
-
-        # # Apply second upsampling
-        # x = self.upconv2(x)
-        # x = self.conv1x1_second(x)
-        # x = self.upsample_second(x)
-
+        x = self.rearrange(x)
+        x = self.mlp_layer(x)
         return x
 
 
 def _conv_filter(state_dict, patch_size=16):
-    """ convert patch embedding weight from manual patchify + linear proj to conv"""
+    """convert patch embedding weight from manual patchify + linear proj to conv"""
     out_dict = {}
     for k, v in state_dict.items():
-        if 'patch_embed.proj.weight' in k:
+        if "patch_embed.proj.weight" in k:
             v = v.reshape((v.shape[0], 3, patch_size, patch_size))
         out_dict[k] = v
     return out_dict
 
 
+if __name__ == "__main__":
+    v = CSWin(
+        img_size=144,
+        patch_size=16,
+        in_chans=64,
+        embed_dim=128,
+        depth=[1, 2, 21, 1],
+        split_size=[1, 2, 9, 9],
+        num_heads=[2, 4, 8, 16],
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        drop_rate=0.0,
+        attn_drop_rate=0.0,
+        drop_path_rate=0.1,
+    )
+
+    img = torch.randn(1, 64, 144, 144)
+
+    preds = v(img)
+
+    print(preds.shape)
